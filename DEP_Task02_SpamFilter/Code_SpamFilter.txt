@@ -1,0 +1,158 @@
+import nltk
+import pandas as pd
+import numpy as py
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
+#For Pre_Processing
+import string
+nltk.download('punkt')
+from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
+
+spam_data = pd.read_csv('SpamFilter.csv')
+spam_data.head()
+
+spam_data.info()
+print (f'Total number of unique vales in text column is: {spam_data['text'].nunique()}')
+
+spam_data.isnull().sum()
+
+print(spam_data.duplicated().sum())
+
+spam_data.drop_duplicates(inplace=True)
+spam_data.duplicated().sum()
+spam_data = spam_data.rename(columns = {'text':'Mail', 'spam':'Label'})
+spam_data.head()
+
+spam_data['Length'] = spam_data['Mail'].apply(len)
+spam_data.head()
+spam_data.sort_values(by='Length', ascending = False).head(4)
+
+def preprocess_text(text):
+    # Remove punctuation
+    no_punctuation = ''.join([char for char in text if char not in string.punctuation])
+
+    # Lowercase the text
+    no_punctuation_lower = no_punctuation.lower()
+
+    # Tokenize the text into words
+    words = nltk.word_tokenize(no_punctuation_lower)
+
+    # Join the tokenized words back into a sentence
+    text = ' '.join(words)
+
+    return text
+
+spam_data['Preprocessed_Mail'] = spam_data['Mail'].apply(preprocess_text)
+spam_data.head()
+
+sns.countplot(data = spam_data, x = 'Label')
+
+spam_data.hist(column = 'Length', by ='Label',figsize=(12,4), bins = 10,color='skyblue')
+
+def plot_ngrams(texts1, texts2, n=2, top_k=25, texts1_name = 'Spam_Mails', texts2_name = 'Ham Mails'):
+    def extract_ngrams(texts):
+        # Create the CountVectorizer for n-grams
+        vectorizer = CountVectorizer(ngram_range=(n, n), stop_words='english')
+        X = vectorizer.fit_transform(texts)
+
+        # Sum up the counts of each n-gram
+        counts = X.sum(axis=0).A1
+        ngrams = vectorizer.get_feature_names_out()
+        ngram_counts = pd.DataFrame({'ngram': ngrams, 'count': counts})
+
+        # Sort the n-grams by their counts in descending order
+        ngram_counts = ngram_counts.sort_values('count', ascending=False).head(top_k)
+        
+        return ngram_counts
+    
+    # Extract n-grams for texts1 and texts2
+    ngram_counts1 = extract_ngrams(texts1)
+    ngram_counts2 = extract_ngrams(texts2)
+    
+    # Plotting side by side
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+
+    # Plot for texts1
+    sns.barplot(ax=axes[0], x='count', y='ngram', data=ngram_counts1)
+    axes[0].set_title('Top {} {}-grams - {}'.format(top_k, n, texts1_name))
+    axes[0].set_xlabel('Count')
+    axes[0].set_ylabel('{}-gram'.format(n))
+
+    # Plot for texts2
+    sns.barplot(ax=axes[1], x='count', y='ngram', data=ngram_counts2)
+    axes[1].set_title('Top {} {}-grams - {}'.format(top_k, n, texts2_name))
+    axes[1].set_xlabel('Count')
+    axes[1].set_ylabel('{}-gram'.format(n))
+
+    plt.tight_layout()
+    plt.show()
+
+spam_mails = spam_data[spam_data['Label'] == 1]['Preprocessed_Mail']
+non_spam_mails = spam_data[spam_data['Label'] == 0]['Preprocessed_Mail']
+plot_ngrams(spam_mails, non_spam_mails, 2)
+
+# TF-IDF
+feature_extraction = TfidfVectorizer(min_df = 1, stop_words = 'english', lowercase = True)
+feature_extraction.fit_transform(spam_data['Preprocessed_Mail'])
+text_tfidf = feature_extraction.fit_transform(spam_data['Preprocessed_Mail'])
+
+x_train, x_test, y_train, y_test = train_test_split(text_tfidf, spam_data["Label"], test_size=0.25)
+
+print(f"train dataset features size: {x_train.shape}")
+print(f"train dataset label size: {y_train.shape}")
+print(f"test dataset features size: {x_test.shape}")
+print(f"test dataset label size: {y_test.shape}")
+
+model = MultinomialNB()
+model.fit (x_train, y_train)
+
+prediction = model.predict (x_test)
+prediction
+
+print(classification_report(y_test, prediction))
+
+print(accuracy_score(y_test, prediction)*100)
+
+conf_matrix = confusion_matrix(y_test, prediction)
+sns.heatmap(conf_matrix, annot = True, fmt = 'd', cmap = 'Reds', cbar = True, xticklabels = ['Ham', 'Spam'], yticklabels = ['Ham', 'Spam'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+
+TP = conf_matrix[1, 1]
+TN = conf_matrix[0, 0]
+FP = conf_matrix[0, 1]
+FN = conf_matrix[1, 0]
+
+accuracy = (TP + TN) / (TP + TN + FP + FN)
+precision = TP / (TP + FP)
+recall = TP / (TP + FN)
+specificity = TN / (TN + FP)
+
+print("Accuracy : ",accuracy)
+print("Precision : ",precision)
+print("Recall : ",recall)
+print("Specificity : ",specificity)
+
+def check_spam(text):
+    text = preprocess_text(text)
+    text_tfidf_new = feature_extraction.transform([text])
+    predict = model.predict(text_tfidf_new)
+    if predict[0] == 0:
+        return ('Ham Mail !')
+    else:
+        return ('Spam Mail !')
+
+check_spam('Subject: hvince , edge effectiveness testing for fas 133  vince ,  as we discussed , subject to minor changes the attached paper will appear in  the j of applied corporate planning . i \'d be most interested in your  comments .  by the way , if you like the yield curve generation process described in the  paper , we \'d be happy to perform a simulation , so that you can compare the  results based on the to the hjm procees .  i look forward to getting together with you when you come to ny to attend  the garp conference , around february 13 . just give me a brief warning .  regards ,  andy  andrew kalotay associates , inc .  ( 212 ) 482 - 0900  andy @ kalotay . com  visit our web - site http : / / www . kalotay . com  - fasl 33 article . doc ')
+
+import gradio as gr
+inputs = gr.Textbox(label = 'Mail')
+outputs = gr.Textbox(label = 'Ham/Spam')
+
+gr.Interface(fn=check_spam, inputs=inputs, outputs=outputs, title="Email Spam Checker", description="Predicts the genuinity of a mail based on its text.").launch(share=True)
